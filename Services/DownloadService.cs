@@ -1,17 +1,40 @@
 using FuraffinityDownloader.Models;
 
+using FuraffinityDownloader.Models;
+
 namespace FuraffinityDownloader.Services;
 
 public sealed class DownloadService
 {
-    public DownloadService()
-    {
-    }
+    private readonly HttpClient _httpClient = new();
 
-    public async Task DownloadAsync(DownloadTask task, string outputRoot, CancellationToken cancellationToken = default)
+    public async Task DownloadAsync(Submission submission, string outputRoot, CancellationToken cancellationToken = default)
     {
-        // Download the file and organize into username subfolder under outputRoot
-        throw new NotImplementedException();
-    }
-}
+        // Create per-user directory
+        var userFolder = submission.Username.ToLowerInvariant();
+        var dir = Path.Combine(outputRoot, userFolder);
+        Directory.CreateDirectory(dir);
 
+        var fileUrl = submission.ContentUrl;
+        var originalName = submission.ContentName;
+        var safeName = FuraffinityDownloader.Utilities.PathUtils.SanitizeFilename(originalName);
+        if (!string.Equals(originalName, safeName, StringComparison.Ordinal))
+            Console.WriteLine($"[WARN] Filename sanitized: '{originalName}' -> '{safeName}'");
+
+        var filePath = Path.Combine(dir, safeName);
+
+        try
+        {
+            // Download file to path
+            await using var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
+            using var response = await _httpClient.GetAsync(fileUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            await response.Content.CopyToAsync(fileStream, cancellationToken);
+            Console.WriteLine($"[DOWNLOADED] {filePath}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[FAIL] Download failed for {filePath}: {ex.Message}");
+        }
+    }
+    }

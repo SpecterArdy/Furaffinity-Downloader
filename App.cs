@@ -19,31 +19,24 @@ public sealed class App
 
     public async Task RunAsync()
     {
-        // === Terminal-based Run Loop ===
         Console.WriteLine("=== Furaffinity Downloader (.NET 9) ===");
-        Console.Write("Enter FurAffinity username or gallery URL: ");
-        var input = Console.ReadLine()?.Trim();
-        if (string.IsNullOrWhiteSpace(input))
+        // Prompt FIRST for login username/password
+        Console.Write("Enter your FA login username: ");
+        var loginUsername = Console.ReadLine()?.Trim();
+        if (string.IsNullOrWhiteSpace(loginUsername))
         {
-            Console.WriteLine("No username or URL supplied. Exiting.");
+            Console.WriteLine("No login username supplied. Exiting.");
             return;
         }
-        // Parse username from URL or take as-is
-        var username = input.StartsWith("http") ? FuraffinityDownloader.Utilities.ParserUtils.ParseUsernameFromUrl(input) : input.Trim();
-
-        // --- Securely prompt for password ---
-        string? password = null;
         Console.Write("Enter your FA password: ");
-        password = ReadPassword();
-        if (string.IsNullOrEmpty(password))
+        var loginPassword = ReadPassword();
+        if (string.IsNullOrWhiteSpace(loginPassword))
         {
             Console.WriteLine("No password supplied. Exiting.");
             return;
         }
-
-        // --- Login ---
         Console.Write("[INFO] Logging in...");
-        var loginResult = await _scraper.LoginAsync(username, password);
+        var loginResult = await _scraper.LoginAsync(loginUsername, loginPassword);
         if (!loginResult)
         {
             Console.WriteLine("\n[FAIL] Login failed. Please check your credentials.");
@@ -51,23 +44,66 @@ public sealed class App
         }
         Console.WriteLine("\n[INFO] Login successful!");
 
-        // Further operations now proceed with authenticated session...
+        // Prompt for whom to scrape
+        Console.Write("\nEnter FurAffinity username or gallery URL to scrape: ");
+        var input = Console.ReadLine()?.Trim();
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            Console.WriteLine("No username or URL supplied. Exiting.");
+            return;
+        }
+        var username = input.StartsWith("http") ? FuraffinityDownloader.Utilities.ParserUtils.ParseUsernameFromUrl(input) : input.Trim();
+
         Console.WriteLine($"[INFO] Scraping user: {username}...");
         // Scraper fetches gallery page(s)
-        // (string html = await _scraper.FetchHtmlAsync(...))
+        string html;
+        try
+        {
+            html = await _scraper.FetchHtmlAsync($"https://www.furaffinity.net/gallery/{username}/");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"\n[FAIL] Unable to fetch gallery page: {ex.Message}");
+            return;
+        }
 
         Console.WriteLine($"[INFO] Parsing gallery HTML...");
-        // var user = _parser.ExtractUser(html);
-        // var submissions = _parser.ExtractSubmissions(html, user);
+        var user = _parser.ExtractUser(html, username, $"https://www.furaffinity.net/gallery/{username}/");
+        if (user == null)
+        {
+            Console.WriteLine("[FAIL] Unable to extract user from HTML or fallback methods.");
+            return;
+        }
 
-        Console.WriteLine($"[INFO] Saving user/info to DB...");
-        // await _database.SaveUserAsync(user);
-        // foreach (var submission in submissions) await _database.SaveSubmissionAsync(submission);
+        var submissions = _parser.ExtractSubmissions(html, user).ToList();
+        Console.WriteLine($"[INFO] Parsed {submissions.Count} submissions for user {user.Username}.");
+        foreach (var s in submissions)
+            Console.WriteLine($"    - {s.Id}: {s.ContentUrl} ({s.ContentName})");
 
-        Console.WriteLine($"[INFO] Downloading submissions to per-user folder structure...");
-        // foreach (var task in BuildDownloadTasks(submissions, user)) await _downloader.DownloadAsync(task, outputRoot);
+        // --- Save to DB ---
+        try
+        {
+            await _database.InitializeAsync();
+            await _database.SaveUserAsync(user);
+            foreach (var sub in submissions)
+                await _database.SaveSubmissionAsync(sub);
+            Console.WriteLine($"[INFO] Saved user and submissions to SQLite database.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[FAIL] Database error: {ex.Message}");
+        }
 
-        Console.WriteLine($"[SUCCESS] Download complete. All files are now organized by username in output directory.");
+        // --- Download files ---
+        Console.Write("Enter download output folder (default=current dir): ");
+        var outputRoot = Console.ReadLine();
+        if (string.IsNullOrWhiteSpace(outputRoot))
+            outputRoot = Directory.GetCurrentDirectory();
+        Console.WriteLine($"[INFO] Downloading submissions to {outputRoot}\\{user.Username}...");
+        foreach (var sub in submissions)
+            await _downloader.DownloadAsync(sub, outputRoot);
+
+        Console.WriteLine($"[SUCCESS] Complete. All files downloaded and indexed.");
     }
 
     private static string ReadPassword()
