@@ -17,9 +17,12 @@ public sealed class DownloadService
 
         var fileUrl = submission.ContentUrl;
         var originalName = submission.ContentName;
-        var safeName = FuraffinityDownloader.Utilities.PathUtils.SanitizeFilename(originalName);
-        if (!string.Equals(originalName, safeName, StringComparison.Ordinal))
-            Console.WriteLine($"[WARN] Filename sanitized: '{originalName}' -> '{safeName}'");
+        var baseName = Path.GetFileNameWithoutExtension(originalName);
+        var extension = Path.GetExtension(originalName);
+        var safeBaseName = FuraffinityDownloader.Utilities.PathUtils.SanitizeFilename(baseName);
+        var safeName = safeBaseName + extension;
+        if (!string.Equals(baseName, safeBaseName, StringComparison.Ordinal))
+            Console.WriteLine($"[WARN] Filename sanitized: '{baseName}' -> '{safeBaseName}' (extension '{extension}')");
 
         var filePath = Path.Combine(dir, safeName);
 

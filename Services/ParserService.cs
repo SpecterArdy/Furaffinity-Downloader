@@ -70,5 +70,28 @@ public sealed class ParserService
             }
         }
     }
-}
 
+    /// <summary>
+    /// Parses a submission HTML page for its true media (image/file) URL and the suggested filename+extension.
+    /// </summary>
+    public (string? MediaUrl, string? RealFilename) ExtractDownloadUrlFromSubmissionHtml(string html)
+    {
+        var doc = new HtmlDocument();
+        doc.LoadHtml(html);
+        // FurAffinity: main image: <img id="submissionImg" ... src="...">
+        var imgNode = doc.DocumentNode.SelectSingleNode("//img[@id='submissionImg']");
+        var mediaUrl = imgNode?.GetAttributeValue("src", null);
+        if (!string.IsNullOrWhiteSpace(mediaUrl))
+        {
+            // Usually starts with "//", prepend https if needed
+            if (mediaUrl.StartsWith("//")) mediaUrl = "https:" + mediaUrl;
+            else if (mediaUrl.StartsWith("/")) mediaUrl = "https://www.furaffinity.net" + mediaUrl;
+
+            // Use URL filename as real name, fallback to id if needed
+            var realFilename = Path.GetFileName(mediaUrl.Split('?')[0]);
+            return (mediaUrl, realFilename);
+        }
+        // Fail: unknown file/media on page
+        return (null, null);
+    }
+}

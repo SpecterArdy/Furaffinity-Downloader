@@ -101,7 +101,30 @@ public sealed class App
             outputRoot = Directory.GetCurrentDirectory();
         Console.WriteLine($"[INFO] Downloading submissions to {outputRoot}\\{user.Username}...");
         foreach (var sub in submissions)
-            await _downloader.DownloadAsync(sub, outputRoot);
+        {
+            // Fetch actual submission page, extract media URL + real filename
+            string subHtml;
+            try
+            {
+                subHtml = await _scraper.FetchHtmlAsync(sub.ContentUrl);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[FAIL] Could not fetch submission page {sub.ContentUrl}: {ex.Message}");
+                continue;
+            }
+            var (mediaUrl, realFilename) = _parser.ExtractDownloadUrlFromSubmissionHtml(subHtml);
+            if (string.IsNullOrEmpty(mediaUrl) || string.IsNullOrEmpty(realFilename))
+            {
+                Console.WriteLine($"[FAIL] Could not parse media/file in {sub.ContentUrl}");
+                continue;
+            }
+            // Download file, preserve extension
+            await _downloader.DownloadAsync(
+                sub with { ContentUrl = mediaUrl, ContentName = realFilename },
+                outputRoot
+            );
+        }
 
         Console.WriteLine($"[SUCCESS] Complete. All files downloaded and indexed.");
     }
