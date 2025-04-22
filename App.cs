@@ -1,4 +1,5 @@
 using FuraffinityDownloader.Services;
+using FuraffinityDownloader.Models;
 
 namespace FuraffinityDownloader;
 
@@ -95,12 +96,21 @@ public sealed class App
         }
 
         // --- Download files ---
-        Console.Write("Enter download output folder (default=current dir): ");
-        var outputRoot = Console.ReadLine();
-        if (string.IsNullOrWhiteSpace(outputRoot))
-            outputRoot = Directory.GetCurrentDirectory();
-        Console.WriteLine($"[INFO] Downloading submissions to {outputRoot}\\{user.Username}...");
-        foreach (var sub in submissions)
+        // Root output in ./Furaffinity
+        var baseRoot = Path.Combine(Directory.GetCurrentDirectory(), "Furaffinity");
+        Directory.CreateDirectory(baseRoot);
+        Console.WriteLine($"[INFO] Downloading submissions to {baseRoot}\\{user.Username}...");
+
+        // ---- Scrape ALL GALLERY & SCRAPS pages before download ----
+        var allGalleryHtmls = await _scraper.FetchAllPaginatedPagesAsync($"https://www.furaffinity.net/gallery/{username}/");
+        var allScrapsHtmls = await _scraper.FetchAllPaginatedPagesAsync($"https://www.furaffinity.net/scraps/{username}/");
+        var allSubmissions = new List<Submission>();
+        foreach (var htmlPage in allGalleryHtmls.Concat(allScrapsHtmls))
+            allSubmissions.AddRange(_parser.ExtractSubmissions(htmlPage, user));
+        var deduped = allSubmissions.DistinctBy(s => s.Id).ToList();
+        Console.WriteLine($"[INFO] Total unique submissions (gallery+scraps): {deduped.Count}.");
+
+        foreach (var sub in deduped)
         {
             // Fetch actual submission page, extract media URL + real filename
             string subHtml;
@@ -122,7 +132,7 @@ public sealed class App
             // Download file, preserve extension
             await _downloader.DownloadAsync(
                 sub with { ContentUrl = mediaUrl, ContentName = realFilename },
-                outputRoot
+                baseRoot // always download to root "Furaffinity"
             );
         }
 

@@ -12,7 +12,6 @@ public sealed class ScraperService
 
     public ScraperService()
     {
-        // Use a CookieContainer for session management (required for FA)
         var handler = new HttpClientHandler
         {
             CookieContainer = new CookieContainer(),
@@ -48,5 +47,32 @@ public sealed class ScraperService
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadAsStringAsync(cancellationToken);
     }
-}
 
+    // Recursively fetches all paginated pages for a gallery/scraps section
+    public async Task<List<string>> FetchAllPaginatedPagesAsync(string firstPageUrl, CancellationToken cancellationToken = default)
+    {
+        var htmls = new List<string>();
+        var pageUrl = firstPageUrl;
+        var visitedUrls = new HashSet<string>();
+        while (!string.IsNullOrWhiteSpace(pageUrl) && !visitedUrls.Contains(pageUrl))
+        {
+            visitedUrls.Add(pageUrl);
+            var html = await FetchHtmlAsync(pageUrl, cancellationToken);
+            htmls.Add(html);
+            // Look for "next" pagination button
+            var doc = new HtmlAgilityPack.HtmlDocument(); doc.LoadHtml(html);
+            var nextLink = doc.DocumentNode.SelectSingleNode("//a[contains(@class, 'pagination-next') and @href]");
+            pageUrl = null;
+            if (nextLink != null)
+            {
+                var href = nextLink.GetAttributeValue("href", null);
+                if (!string.IsNullOrWhiteSpace(href))
+                {
+                    if (href.StartsWith("/")) href = "https://www.furaffinity.net" + href;
+                    pageUrl = href;
+                }
+            }
+        }
+        return htmls;
+    }
+}
